@@ -36,45 +36,33 @@ probabilities(x, TimeScaleMODWT(wl))
 """
 struct TimeScaleMODWT <: WaveletProbabilitiesEstimator
     wl::Wavelets.WT.OrthoWaveletClass
-    function TimeScaleMODWT(wl::Wavelets.WT.OrthoWaveletClass = Wavelets.WT.Daubechies{12}())
-        new(wl)
-    end
+end
+TimeScaleMODWT() = TimeScaleMODWT(Wavelets.WT.Daubechies{12}())
+
+function probabilities(x, est::TimeScaleMODWT)
+    @assert x isa AbstractVector{<:Real} "`TimeScaleMODWT` only works for timeseries input!"
+    Probabilities(time_scale_density(x, est.wl))
 end
 
-function get_modwt(x::AbstractVector{T}, wl::Wavelets.WT.OrthoWaveletClass = Wavelets.WT.Daubechies{12}()) where T<:Real
+function time_scale_density(x, wl::Wavelets.WT.OrthoWaveletClass)
+    W = get_modwt(x, wl)
+    ps = relative_wavelet_energies(W)
+end
+# maximum overlap discrete wavelet transform
+function get_modwt(x, wl)
     orthofilter = wavelet(wl)
     nscales = maxdyadiclevel(x)
     W = modwt(x, orthofilter, nscales)
 end
 
-function energy_at_scale(W::AbstractArray{T, 2}, j::Int) where T<:Real
-    1 <= j <= size(W, 2) || error("Scale j does not exist in wave coefficient matrix W. Available scales are j=1:$(size(W, 2))")
-    Eⱼ = sum(W[:, j] .^ 2)
+function relative_wavelet_energies(W::AbstractMatrix, js = 1:size(W, 2))
+    if any(j ∉ 1:size(W, 2) for j in js)
+        error("scales $(js) contains scales not present in wavelet coefficient "*
+              "matrix with scales j ∈ 1:$(size(W, 2))")
+    end
+    total_energy = sum(W .^ 2)
+    return [energy_at_scale(W, j) / total_energy for j in js]
 end
 
-function energy_at_time(W::AbstractArray{T, 2}, t::Int) where T<:Real
-    1 <= t <= size(W, 1) || error("Time t does not exist in wave coefficient matrix W. Available times are t=1:$(size(W, 1))")
-    Eⱼ = sum(W[t, :] .^ 2)
-end
-
-function energy_total(W::AbstractArray{T, 2}) where T<:Real
-    Etot = sum(W .^ 2)
-end
-
-function relative_wavelet_energy(W::AbstractArray{T, 2}, j::Int) where T<:Real
-    energy_at_scale(W, j) / energy_total(W)
-end
-
-function relative_wavelet_energies(W::AbstractArray{T, 2}, js = 1:size(W, 2)) where T<:Real
-    all(1 .<= js .<= size(W, 2)) || error(ArgumentError("scales $(js) contains scales not present in wavelet coefficient matrix with scales j=1:$(size(W, 2))"))
-    [energy_at_scale(W, j) / energy_total(W) for j in js]
-end
-
-function time_scale_density(x::AbstractVector{T}, wl::Wavelets.WT.OrthoWaveletClass = WT.Daubechies{12}()) where T
-    W = get_modwt(x, wl)
-    Pⱼs = relative_wavelet_energies(W)
-end
-
-function probabilities(x::AbstractVector{T}, est::TimeScaleMODWT) where T<:Real
-    Probabilities(time_scale_density(x, est.wl))
-end
+energy_at_scale(W, j::Int) = sum(w*w for w in @view(W[:, j]))
+energy_at_time(W, t::Int) = sum(w*w for w in @view(W[t, :]))
